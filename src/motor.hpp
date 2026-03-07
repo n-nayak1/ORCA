@@ -33,6 +33,8 @@ public:
   // Optional: update endpoints (e.g., cap max throttle)
   void setDutyRange(uint32_t duty_min, uint32_t duty_max);
 
+  void setPercentLog(float percent, float strength = 5.0f);
+
 private:
   uint8_t  pin_;
   uint8_t  ch_;

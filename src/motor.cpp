@@ -48,3 +48,20 @@ void Motor::setDuty(uint32_t duty) {
 void Motor::stop() {
   ledcWrite(ch_, duty_min_);
 }
+
+#include <math.h>
+
+void Motor::setPercentLog(float percent, float strength) {
+  percent = clampf(percent, 0.0f, 100.0f);
+
+  // Normalize
+  float x = percent / 100.0f;
+
+  // Logarithmic scaling
+  float y = logf(1.0f + strength * x) / logf(1.0f + strength);
+
+  const uint32_t span = (duty_max_ > duty_min_) ? (duty_max_ - duty_min_) : 0;
+  const uint32_t duty = duty_min_ + (uint32_t)(span * y);
+
+  ledcWrite(ch_, duty);
+}

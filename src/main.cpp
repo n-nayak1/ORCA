@@ -1,190 +1,4 @@
-// #include <Arduino.h>
-// #include <WiFi.h>
-// #include <ESPAsyncWebServer.h>
-// #include "icm20948.hpp"
-// #include "filter.hpp"
-// #include "control.hpp"
-// #include "motor.hpp"
 
-// // Network Credentials
-// const char* ssid = "Drone-Config";
-// const char* password = "password123";
-
-// // Objects
-// ICM20948 imu;
-// Filter filter;
-// Controller controller;
-// AsyncWebServer server(80);
-
-// #define MOTOR_FL_PIN 16
-// #define MOTOR_FR_PIN 17
-// #define MOTOR_RL_PIN 18
-// #define MOTOR_RR_PIN 19
-
-// Motor motors[4] = {
-//   Motor(MOTOR_FL_PIN, 0), // FL
-//   Motor(MOTOR_FR_PIN, 1), // FR
-//   Motor(MOTOR_RL_PIN, 2), // RL
-//   Motor(MOTOR_RR_PIN, 3)  // RR
-// };
-
-// // Global Control State
-// float manual_throttle = 0.0f;
-// uint32_t last_micros = 0;
-
-// // HTML Dashboard String
-// const char index_html[] PROGMEM = R"rawliteral(
-// <!DOCTYPE HTML><html><head>
-//   <title>Drone Dashboard</title>
-//   <meta name="viewport" content="width=device-width, initial-scale=1">
-//   <style>
-//     body { font-family: sans-serif; text-align: center; background: #1a1a1a; color: #eee; }
-//     .card { background: #2d2d2d; padding: 15px; margin: 10px auto; max-width: 400px; border-radius: 10px; }
-//     .slider { width: 90%; height: 20px; margin: 15px 0; }
-//     input[type=number] { width: 50px; background: #444; color: #fff; border: 1px solid #666; padding: 3px; }
-//     button { padding: 10px 20px; margin: 5px; border-radius: 5px; border: none; cursor: pointer; }
-//     .kill { background: #ff4444; color: white; font-weight: bold; width: 100%; }
-//     .save { background: #44bb44; color: white; }
-//   </style>
-// </head><body>
-//   <h2>Hover Control</h2>
-//   <div class="card">
-//     <h3>Throttle: <span id="tval">0</span>%</h3>
-//     <input type="range" min="0" max="100" value="0" class="slider" oninput="updateThrottle(this.value)">
-//     <button class="kill" onclick="updateThrottle(0)">EMERGENCY STOP</button>
-//   </div>
-//   <div class="card">
-//     <h3>PID Tuning</h3>
-//     <div>Pitch: P <input id="pp" type="number" step="0.01" value="0.15"> I <input id="pi" type="number" step="0.01" value="0.005"> D <input id="pd" type="number" step="0.01" value="0.04"></div><br>
-//     <div>Roll:  P <input id="rp" type="number" step="0.01" value="0.15"> I <input id="ri" type="number" step="0.01" value="0.005"> D <input id="rd" type="number" step="0.01" value="0.04"></div><br>
-//     <div>Yaw:   P <input id="yp" type="number" step="0.01" value="0.20"> I <input id="yi" type="number" step="0.01" value="0.001"> D <input id="yd" type="number" step="0.01" value="0.00"></div><br>
-//     <button class="save" onclick="savePID()">Update Constants</button>
-//   </div>
-// <script>
-//   function updateThrottle(val) {
-//     document.getElementById("tval").innerHTML = val;
-//     fetch("/set?throttle=" + val);
-//   }
-//   function savePID() {
-//     let p = `pp=${document.getElementById('pp').value}&pi=${document.getElementById('pi').value}&pd=${document.getElementById('pd').value}` +
-//             `&rp=${document.getElementById('rp').value}&ri=${document.getElementById('ri').value}&rd=${document.getElementById('rd').value}` +
-//             `&yp=${document.getElementById('yp').value}&yi=${document.getElementById('yi').value}&yd=${document.getElementById('yd').value}`;
-//     fetch("/pid?" + p);
-//   }
-// </script></body></html>)rawliteral";
-
-// void setup() {
-//   Serial.begin(115200);
-
-//   // 1. Initialize Wi-Fi Access Point
-//   WiFi.softAP(ssid, password);
-//   Serial.print("Connect to Wi-Fi: "); Serial.println(ssid);
-//   Serial.print("IP Address: "); Serial.println(WiFi.softAPIP());
-
-//   // 2. Web Server Routes
-//   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-//     request->send_P(200, "text/html", index_html);
-//   });
-
-//   server.on("/set", HTTP_GET, [](AsyncWebServerRequest *request){
-//     if (request->hasParam("throttle")) {
-//       manual_throttle = request->getParam("throttle")->value().toFloat();
-//     }
-//     request->send(200, "text/plain", "OK");
-//   });
-
-//   server.on("/pid", HTTP_GET, [](AsyncWebServerRequest *request){
-//     controller.updateGains(
-//       request->arg("pp").toFloat(), request->arg("pi").toFloat(), request->arg("pd").toFloat(),
-//       request->arg("rp").toFloat(), request->arg("ri").toFloat(), request->arg("rd").toFloat(),
-//       request->arg("yp").toFloat(), request->arg("yi").toFloat(), request->arg("yd").toFloat()
-//     );
-//     request->send(200, "text/plain", "Gains Applied");
-//   });
-
-//   server.begin();
-
-//   // 3. Hardware Init
-//   if (!imu.begin()) {
-//     Serial.println("FATAL ERROR: ICM20948 IMU NOT FOUND! Check wiring (SDA/SCL).");
-//     while (1); 
-//   }
-//   Serial.println("SUCCESS: IMU Initialized.");
-
-//   filter.begin(100.0f); 
-//   Serial.println("SUCCESS: Filter Initialized.");
-
-//   for (int i = 0; i < 4; i++) {
-//     motors[i].begin(2000); 
-//   }
-  
-//   last_micros = micros();
-//   Serial.println("Setup complete.");
-// }
-
-
-// void loop() {
-//   // 1. Check IMU - Most IMUs won't have data every single microsecond.
-//   // We only proceed if there is a fresh sensor reading.
-//   if (!imu.update()) {
-//     return; 
-//   }
-
-//   // 2. Update the Filter with the new IMU data
-//   if (filter.update9(imu.data())) {
-    
-//     // Timing calculation
-//     uint32_t current_micros = micros();
-//     float dt = (current_micros - last_micros) * 1e-6f;
-//     last_micros = current_micros;
-    
-//     // Safety check for first run or timing glitches
-//     if (dt > 0.1f || dt <= 0.0f) dt = 0.01f; 
-
-//     euler_t current_angle = filter.euler9();
-    
-//     // Maintain current heading, but aim for level pitch/roll
-//     euler_t target = {0.0f, 0.0f, current_angle.yaw_deg}; 
-
-//     // --- SAFETY KILL LOGIC ---
-//     if (manual_throttle < 5.0f) {
-//       for (int i = 0; i < 4; i++) motors[i].stop();
-//       controller.resetIntegrals(); 
-//     } else {
-//       // --- ACTIVE FLIGHT CONTROL ---
-//       // Only compute and write to motors if we are above the 5% threshold
-//       controller.compute(target, current_angle, manual_throttle, dt);
-
-//       for (int i = 0; i < 4; i++) {
-//         motors[i].setPercent(controller.getMotorOutput(i));
-//       }
-//     }
-
-//     // --- REAL-TIME MONITORING ---
-//     // Moved inside the 'if(filter.update9)' block so it only prints when data is fresh
-//     static uint32_t last_print = 0;
-//     if (millis() - last_print > 100) { 
-//       last_print = millis();
-      
-//       Serial.print("Ang-> R:"); Serial.print(current_angle.roll_deg, 1);
-//       Serial.print(" P:"); Serial.print(current_angle.pitch_deg, 1);
-//       Serial.print(" | Motors-> FL:"); Serial.print(controller.getMotorOutput(0), 1);
-//       Serial.print("% FR:"); Serial.print(controller.getMotorOutput(1), 1);
-//       Serial.print("% RL:"); Serial.print(controller.getMotorOutput(2), 1);
-//       Serial.print("% RR:"); Serial.print(controller.getMotorOutput(3), 1);
-//       Serial.println("%");
-
-//       // Line 2: Active PID Constants (Verification for Web Dashboard)
-//       // Note: We need to add getters to control.hpp for these to work directly
-//       Serial.println("--- Current PID Gains ---");
-//       // Accessing the constants directly or via the controller
-//       Serial.print("Pitch PID: "); Serial.print(controller.getKp(0), 3); // P
-//       Serial.print(", "); Serial.print(controller.getKi(0), 3);         // I
-//       Serial.print(", "); Serial.println(controller.getKd(0), 3);       // D
-//       Serial.println("-------------------------");
-//     }
-//   }
-// }
 
 // main.cpp
 #include <Arduino.h>
@@ -196,6 +10,7 @@
 #include "filter.hpp"
 #include "control.hpp"
 #include "motor.hpp"
+#include "rc_control.hpp"
 
 // ===================== Wi-Fi AP Credentials =====================
 const char* ssid     = "Drone-Config";
@@ -288,11 +103,6 @@ const char index_html[] PROGMEM = R"rawliteral(
 </head><body>
   <h2>Hover Control</h2>
 
-  <div class="card">
-    <h3>Throttle: <span id="tval">0</span>%</h3>
-    <input type="range" min="0" max="100" value="0" class="slider" oninput="updateThrottle(this.value)">
-    <button class="kill" onclick="updateThrottle(0)">EMERGENCY STOP</button>
-  </div>
 
   <div class="card">
     <h3>Live Telemetry</h3>
@@ -337,11 +147,7 @@ const char index_html[] PROGMEM = R"rawliteral(
   </div>
 
 <script>
-  // ---------- Throttle / PID endpoints ----------
-  function updateThrottle(val) {
-    document.getElementById("tval").innerHTML = val;
-    fetch("/set?throttle=" + val);
-  }
+
   function savePID() {
     let p = `pp=${document.getElementById('pp').value}&pi=${document.getElementById('pi').value}&pd=${document.getElementById('pd').value}` +
             `&rp=${document.getElementById('rp').value}&ri=${document.getElementById('ri').value}&rd=${document.getElementById('rd').value}` +
@@ -425,14 +231,17 @@ void setup() {
     request->send_P(200, "text/html", index_html);
   });
 
-  server.on("/set", HTTP_GET, [](AsyncWebServerRequest *request){
-    if (request->hasParam("throttle")) {
-      manual_throttle = request->getParam("throttle")->value().toFloat();
-      if (manual_throttle < 0) manual_throttle = 0;
-      if (manual_throttle > 100) manual_throttle = 100;
-    }
-    request->send(200, "text/plain", "OK");
-  });
+  RCControl::begin();
+  Serial.println("SUCCESS: RC input initialized.");
+
+  // server.on("/set", HTTP_GET, [](AsyncWebServerRequest *request){
+  //   if (request->hasParam("throttle")) {
+  //     manual_throttle = request->getParam("throttle")->value().toFloat();
+  //     if (manual_throttle < 0) manual_throttle = 0;
+  //     if (manual_throttle > 100) manual_throttle = 100;
+  //   }
+  //   request->send(200, "text/plain", "OK");
+  // });
 
   server.on("/pid", HTTP_GET, [](AsyncWebServerRequest *request){
     controller.updateGains(
@@ -470,6 +279,14 @@ void setup() {
 // ===================== Main Loop =====================
 void loop() {
   // We keep loop lightweight: update IMU/filter/control; stream telemetry at fixed rate.
+
+  // const bool rc_ok = RCControl::isReceiverActive(100000); // 0 ms timeout
+  const uint16_t chThrottle = RCControl::readChannelRaw(2);
+
+  float throttle_cmd = (static_cast<float>(chThrottle) - 1000.0f) / 10.0f;
+  if (throttle_cmd < 0.0f)   throttle_cmd = 0.0f;
+  if (throttle_cmd > 100.0f) throttle_cmd = 100.0f;
+  
   if (!imu.update()) {
     // Still keep WS alive / cleanup
     ws.cleanupClients();
@@ -495,14 +312,29 @@ void loop() {
   euler_t target = {0.0f, 0.0f, current_angle.yaw_deg};
 
   // Kill logic
-  if (manual_throttle < 5.0f) {
-    for (int i = 0; i < 4; i++) motors[i].stop();
-    controller.resetIntegrals();
+  // if (manual_throttle < 5.0f) {
+  //   for (int i = 0; i < 4; i++) motors[i].stop();
+  //   controller.resetIntegrals();
+  // } else {
+  //   controller.compute(target, current_angle, manual_throttle, dt);
+  //   for (int i = 0; i < 4; i++) {
+  //     motors[i].setPercent(controller.getMotorOutput(i)); // expects 0..100
+  //   }
+  // }
+
+  // if (current_angle.pitch_deg > 45 || current_angle.pitch_deg < -45 ||
+  //     current_angle.roll_deg > 45 || current_angle.roll_deg < -45) {
+  //   for (int i = 0; i < 4; i++) motors[i].stop();
+  //   controller.resetIntegrals();
+  // } else
+  if (throttle_cmd < 5.0f) {
+      for (int i = 0; i < 4; i++) motors[i].stop();
+      controller.resetIntegrals();
   } else {
-    controller.compute(target, current_angle, manual_throttle, dt);
-    for (int i = 0; i < 4; i++) {
-      motors[i].setPercent(controller.getMotorOutput(i)); // expects 0..100
-    }
+      controller.compute(target, current_angle, throttle_cmd, dt);
+      for (int i = 0; i < 4; i++) {
+          motors[i].setPercentLog(controller.getMotorOutput(i));
+      }
   }
 
   // Update telemetry snapshot
@@ -510,7 +342,7 @@ void loop() {
   telem.roll = current_angle.roll_deg;
   telem.pitch = current_angle.pitch_deg;
   telem.yaw = current_angle.yaw_deg;
-  telem.throttle = manual_throttle;
+  telem.throttle = throttle_cmd;
   telem.dt = dt;
   telem.m0 = controller.getMotorOutput(0);
   telem.m1 = controller.getMotorOutput(1);

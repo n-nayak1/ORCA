@@ -1,72 +1,98 @@
 #include "control.hpp"
 #include <math.h>
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 Controller::Controller() {
-    // Initial scaled gains for 0-100 output range
-    pitchPID = {0.15f, 0.005f, 0.04f, 0.0f, 0.0f, 40.0f};
-    rollPID  = {0.15f, 0.005f, 0.04f, 0.0f, 0.0f, 40.0f};
-    yawPID   = {0.20f, 0.001f, 0.0f, 0.0f, 0.0f, 40.0f};
-    
+    pitchPID = {0.03f, 0.000f, 0.06f, 0.0f, 0.0f, 40.0f, 0.0f};
+    rollPID  = {0.03f, 0.000f, 0.06f, 0.0f, 0.0f, 40.0f, 0.0f};
+    yawPID   = {0.01f, 0.000f, 0.00f, 0.0f, 0.0f, 40.0f, 0.0f};
+
     resetIntegrals();
 }
 
 float Controller::runPID(PIDAxis &pid, float error, float dt) {
     if (dt <= 0.0f) return 0.0f;
 
-    // Deadband: Ignore tiny errors to stop motor jitter
     if (fabs(error) < 0.5f) error = 0.0f;
 
+    // Integral
     pid.integral += error * dt;
     pid.integral = clamp(pid.integral, -pid.integral_limit, pid.integral_limit);
 
-    float derivative = (error - pid.previous_error) / dt;
+    // Raw derivative
+    float d_raw = (error - pid.previous_error) / dt;
     pid.previous_error = error;
 
-    return (pid.Kp * error) + (pid.Ki * pid.integral) + (pid.Kd * derivative);
+    // 1st-order low-pass filter on derivative
+    // Start with cutoff around 15 Hz for 100 Hz loop
+    const float cutoff_hz = 15.0f;
+    const float tau = 1.0f / (2.0f * (float)M_PI * cutoff_hz);
+    const float alpha = tau / (tau + dt);
+
+    pid.d_filtered = alpha * pid.d_filtered + (1.0f - alpha) * d_raw;
+
+    return (pid.Kp * error) +
+           (pid.Ki * pid.integral) +
+           (pid.Kd * pid.d_filtered);
+}
+
+float Controller::wrapAngle180(float angle) {
+    while (angle > 180.0f) angle -= 360.0f;
+    while (angle < -180.0f) angle += 360.0f;
+    return angle;
 }
 
 void Controller::compute(euler_t target, euler_t current, float throttle, float dt) {
-    // Target clamping: prevent extreme angle requests
     float target_p = clamp(target.pitch_deg, -5.0f, 5.0f);
-    float target_r = clamp(target.roll_deg, -5.0f, 5.0f);
+    float target_r = clamp(target.roll_deg,  -5.0f, 5.0f);
 
-    float p_adj = runPID(pitchPID, target_p - current.pitch_deg, dt);
-    float r_adj = runPID(rollPID,  target_r - current.roll_deg,  dt);
-    float y_adj = runPID(yawPID,   target.yaw_deg - current.yaw_deg, dt);
+    float pitch_error = target_p - current.pitch_deg;
+    float roll_error  = target_r - current.roll_deg;
+    float yaw_error   = wrapAngle180(target.yaw_deg - current.yaw_deg);
 
-    // Motor Mixing (X-Config)
-    // motor_outputs[0] = throttle + p_adj + r_adj + y_adj; // FL
-    // motor_outputs[1] = throttle + p_adj - r_adj - y_adj; // FR
-    // motor_outputs[2] = throttle - p_adj + r_adj - y_adj; // RL
-    // motor_outputs[3] = throttle - p_adj - r_adj + y_adj; // RR
+    float p_adj = runPID(pitchPID, pitch_error, dt);
+    float r_adj = runPID(rollPID,  roll_error,  dt);
+    float y_adj = runPID(yawPID,   yaw_error,   dt);
 
-    motor_outputs[0] = throttle - p_adj - r_adj; // + y_adj; // FL
-    motor_outputs[1] = throttle + p_adj - r_adj; // - y_adj; // FR
-    motor_outputs[2] = throttle - p_adj + r_adj; // - y_adj; // RL
-    motor_outputs[3] = throttle + p_adj + r_adj; // + y_adj; // RR
+    motor_outputs[0] = throttle - p_adj - r_adj; // FL
+    motor_outputs[1] = throttle + p_adj - r_adj; // FR
+    motor_outputs[2] = throttle - p_adj + r_adj; // RL
+    motor_outputs[3] = throttle + p_adj + r_adj; // RR
 
-    // Clamp final output to 0-100% for the Motor class
-    for(int i=0; i<4; i++) {
+    // Uncomment after verifying yaw motor directions
+    // motor_outputs[0] += y_adj;
+    // motor_outputs[1] -= y_adj;
+    // motor_outputs[2] -= y_adj;
+    // motor_outputs[3] += y_adj;
+
+    for (int i = 0; i < 4; i++) {
         motor_outputs[i] = clamp(motor_outputs[i], 0.0f, 100.0f);
     }
 }
 
-void Controller::updateGains(float pP, float pI, float pD, 
-                             float rP, float rI, float rD, 
+void Controller::updateGains(float pP, float pI, float pD,
+                             float rP, float rI, float rD,
                              float yP, float yI, float yD) {
     pitchPID.Kp = pP; pitchPID.Ki = pI; pitchPID.Kd = pD;
     rollPID.Kp  = rP; rollPID.Ki  = rI; rollPID.Kd  = rD;
     yawPID.Kp   = yP; yawPID.Ki   = yI; yawPID.Kd   = yD;
-    resetIntegrals(); // Reset to prevent jumps when gains change
+    resetIntegrals();
 }
 
 void Controller::resetIntegrals() {
     PIDAxis* axes[3] = {&pitchPID, &rollPID, &yawPID};
-    for(int i=0; i<3; i++) {
+    for (int i = 0; i < 3; i++) {
         axes[i]->integral = 0.0f;
         axes[i]->previous_error = 0.0f;
+        axes[i]->d_filtered = 0.0f;
     }
-    for(int i=0; i<4; i++) motor_outputs[i] = 0.0f;
+
+    for (int i = 0; i < 4; i++) {
+        motor_outputs[i] = 0.0f;
+    }
 }
 
 float Controller::clamp(float val, float min, float max) {
@@ -74,4 +100,3 @@ float Controller::clamp(float val, float min, float max) {
     if (val > max) return max;
     return val;
 }
-
