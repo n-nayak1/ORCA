@@ -5,6 +5,7 @@
 #include <WiFi.h>
 #include <AsyncTCP.h>              // REQUIRED on ESP32 for ESPAsyncWebServer
 #include <ESPAsyncWebServer.h>
+#include <math.h>
 
 #include "icm20948.hpp"
 #include "filter.hpp"
@@ -41,12 +42,31 @@ Motor motors[4] = {
 float manual_throttle = 0.0f;
 uint32_t last_micros = 0;
 
+// Vertical damping (accel-hold style, body-Z specific force in g)
+float z_accel_set_g = 1.0f;
+float z_kp = 3.0f;
+float z_ki = 0.25f;
+float z_kd = 0.35f;
+float z_lpf_cutoff_hz = 6.0f;
+float z_err_deadband_g = 0.02f;
+float z_int_limit = 2.0f;
+float z_trim_limit = 6.0f;
+
+float z_accel_filt_g = 1.0f;
+float z_integral = 0.0f;
+float z_prev_error = 0.0f;
+
 // ===================== Telemetry Snapshot =====================
 struct Telemetry {
   uint32_t t_ms = 0;
   float roll = 0, pitch = 0, yaw = 0;
   float m0 = 0, m1 = 0, m2 = 0, m3 = 0;   // 0..100 (%)
   float throttle = 0;                     // 0..100 (%)
+  float throttle_in = 0;                  // RC command (%), before z trim
+  float az = 0;                           // measured body-z accel (g)
+  float az_f = 0;                         // filtered body-z accel (g)
+  float z_err = 0;                        // z accel error (g)
+  float z_trim = 0;                       // throttle trim from z loop (%)
   float dt = 0;                           // seconds
 };
 
@@ -64,6 +84,11 @@ static String telemetryJson(const Telemetry& s) {
   out += ",\"p\":"; out += String(s.pitch, 2);
   out += ",\"y\":"; out += String(s.yaw, 2);
   out += ",\"th\":"; out += String(s.throttle, 1);
+  out += ",\"th_in\":"; out += String(s.throttle_in, 1);
+  out += ",\"az\":"; out += String(s.az, 3);
+  out += ",\"azf\":"; out += String(s.az_f, 3);
+  out += ",\"ze\":"; out += String(s.z_err, 3);
+  out += ",\"zt\":"; out += String(s.z_trim, 2);
   out += ",\"dt\":"; out += String(s.dt, 4);
   out += ",\"m0\":"; out += String(s.m0, 1);
   out += ",\"m1\":"; out += String(s.m1, 1);
@@ -131,19 +156,34 @@ const char index_html[] PROGMEM = R"rawliteral(
 
   <div class="card">
     <h3>PID Tuning</h3>
-    <div>Pitch: P <input id="pp" type="number" step="0.01" value="0.15">
-         I <input id="pi" type="number" step="0.001" value="0.005">
-         D <input id="pd" type="number" step="0.01" value="0.04"></div><br>
+    <div>Pitch: P <input id="pp" type="number" step="0.001" value="0.06">
+         I <input id="pi" type="number" step="0.001" value="0.00">
+         D <input id="pd" type="number" step="0.001" value="0.065"></div><br>
 
-    <div>Roll:  P <input id="rp" type="number" step="0.01" value="0.15">
-         I <input id="ri" type="number" step="0.001" value="0.005">
-         D <input id="rd" type="number" step="0.01" value="0.04"></div><br>
+    <div>Roll:  P <input id="rp" type="number" step="0.001" value="0.07">
+         I <input id="ri" type="number" step="0.001" value="0.00">
+         D <input id="rd" type="number" step="0.001" value="0.065"></div><br>
 
-    <div>Yaw:   P <input id="yp" type="number" step="0.01" value="0.20">
-         I <input id="yi" type="number" step="0.001" value="0.001">
+    <div>Yaw:   P <input id="yp" type="number" step="0.001" value="0.005">
+         I <input id="yi" type="number" step="0.001" value="0.00">
          D <input id="yd" type="number" step="0.01" value="0.00"></div><br>
 
     <button class="save" onclick="savePID()">Update Constants</button>
+  </div>
+
+  <div class="card">
+    <h3>Z Damping Tuning</h3>
+    <div>Z Set (g) <input id="zset" type="number" step="0.001" value="1.000">
+         Kp <input id="zkp" type="number" step="0.01" value="3.00">
+         Ki <input id="zki" type="number" step="0.01" value="0.25">
+         Kd <input id="zkd" type="number" step="0.01" value="0.35"></div><br>
+
+    <div>LPF Hz <input id="zcut" type="number" step="0.1" value="6.0">
+         Deadband (g) <input id="zdb" type="number" step="0.001" value="0.020">
+         Int Lim <input id="zint" type="number" step="0.1" value="2.0">
+         Trim Lim (%) <input id="ztrim" type="number" step="0.1" value="6.0"></div><br>
+
+    <button class="save" onclick="saveZ()">Update Z Params</button>
   </div>
 
 <script>
@@ -155,11 +195,23 @@ const char index_html[] PROGMEM = R"rawliteral(
     fetch("/pid?" + p);
   }
 
+  function saveZ() {
+    let p = `zset=${document.getElementById('zset').value}` +
+            `&zkp=${document.getElementById('zkp').value}` +
+            `&zki=${document.getElementById('zki').value}` +
+            `&zkd=${document.getElementById('zkd').value}` +
+            `&zcut=${document.getElementById('zcut').value}` +
+            `&zdb=${document.getElementById('zdb').value}` +
+            `&zint=${document.getElementById('zint').value}` +
+            `&ztrim=${document.getElementById('ztrim').value}`;
+    fetch("/zpid?" + p);
+  }
+
   // ---------- WebSocket Telemetry ----------
   let ws;
   let logging = false;
   let logRows = [];
-  const header = ["t_ms","roll_deg","pitch_deg","yaw_deg","throttle_pct","dt_s","m0_pct","m1_pct","m2_pct","m3_pct"];
+  const header = ["t_ms","roll_deg","pitch_deg","yaw_deg","throttle_pct","throttle_in_pct","az_g","azf_g","z_err_g","z_trim_pct","dt_s","m0_pct","m1_pct","m2_pct","m3_pct"];
 
   function connectWS() {
     const url = `ws://${location.host}/ws`;
@@ -186,7 +238,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 
         // CSV logging
         if (logging) {
-          logRows.push([d.t, d.r, d.p, d.y, d.th, d.dt, d.m0, d.m1, d.m2, d.m3]);
+          logRows.push([d.t, d.r, d.p, d.y, d.th, d.th_in, d.az, d.azf, d.ze, d.zt, d.dt, d.m0, d.m1, d.m2, d.m3]);
           document.getElementById("rows").textContent = logRows.length;
         }
       } catch (e) {
@@ -250,6 +302,24 @@ void setup() {
       request->arg("yp").toFloat(), request->arg("yi").toFloat(), request->arg("yd").toFloat()
     );
     request->send(200, "text/plain", "Gains Applied");
+  });
+
+  server.on("/zpid", HTTP_GET, [](AsyncWebServerRequest *request){
+    if (request->hasArg("zset")) z_accel_set_g = request->arg("zset").toFloat();
+    if (request->hasArg("zkp")) z_kp = request->arg("zkp").toFloat();
+    if (request->hasArg("zki")) z_ki = request->arg("zki").toFloat();
+    if (request->hasArg("zkd")) z_kd = request->arg("zkd").toFloat();
+    if (request->hasArg("zcut")) z_lpf_cutoff_hz = request->arg("zcut").toFloat();
+    if (request->hasArg("zdb")) z_err_deadband_g = request->arg("zdb").toFloat();
+    if (request->hasArg("zint")) z_int_limit = request->arg("zint").toFloat();
+    if (request->hasArg("ztrim")) z_trim_limit = request->arg("ztrim").toFloat();
+
+    if (z_lpf_cutoff_hz < 0.1f) z_lpf_cutoff_hz = 0.1f;
+    if (z_err_deadband_g < 0.0f) z_err_deadband_g = 0.0f;
+    if (z_int_limit < 0.0f) z_int_limit = 0.0f;
+    if (z_trim_limit < 0.0f) z_trim_limit = 0.0f;
+
+    request->send(200, "text/plain", "Z Params Applied");
   });
 
   // 3) WebSocket
@@ -327,14 +397,48 @@ void loop() {
   //   for (int i = 0; i < 4; i++) motors[i].stop();
   //   controller.resetIntegrals();
   // } else
+  float z_trim = 0.0f;
+  float z_error = 0.0f;
+  const float az_body_g = imu.data().az;
+
   if (throttle_cmd < 5.0f) {
+      z_accel_filt_g = az_body_g;
+      z_integral = 0.0f;
+      z_prev_error = 0.0f;
+
       for (int i = 0; i < 4; i++) motors[i].stop();
       controller.resetIntegrals();
   } else {
-      controller.compute(target, current_angle, throttle_cmd, dt);
+      const float tau = 1.0f / (2.0f * (float)M_PI * z_lpf_cutoff_hz);
+      const float alpha = tau / (tau + dt);
+      z_accel_filt_g = alpha * z_accel_filt_g + (1.0f - alpha) * az_body_g;
+
+      z_error = z_accel_set_g - z_accel_filt_g;
+      if (fabsf(z_error) < z_err_deadband_g) z_error = 0.0f;
+
+      z_integral += z_error * dt;
+      if (z_integral > z_int_limit) z_integral = z_int_limit;
+      if (z_integral < -z_int_limit) z_integral = -z_int_limit;
+
+      const float z_derivative = (z_error - z_prev_error) / dt;
+      z_prev_error = z_error;
+
+      z_trim = (z_kp * z_error) +
+               (z_ki * z_integral) +
+               (z_kd * z_derivative);
+      if (z_trim > z_trim_limit) z_trim = z_trim_limit;
+      if (z_trim < -z_trim_limit) z_trim = -z_trim_limit;
+
+      float throttle_stab = throttle_cmd + z_trim;
+      if (throttle_stab < 0.0f) throttle_stab = 0.0f;
+      if (throttle_stab > 100.0f) throttle_stab = 100.0f;
+
+      controller.compute(target, current_angle, throttle_stab, dt);
       for (int i = 0; i < 4; i++) {
-          motors[i].setPercentLog(controller.getMotorOutput(i));
+          motors[i].setPercent(controller.getMotorOutput(i));
       }
+
+      telem.throttle = throttle_stab;
   }
 
   // Update telemetry snapshot
@@ -342,7 +446,12 @@ void loop() {
   telem.roll = current_angle.roll_deg;
   telem.pitch = current_angle.pitch_deg;
   telem.yaw = current_angle.yaw_deg;
-  telem.throttle = throttle_cmd;
+  telem.throttle_in = throttle_cmd;
+  if (throttle_cmd < 5.0f) telem.throttle = throttle_cmd;
+  telem.az = az_body_g;
+  telem.az_f = z_accel_filt_g;
+  telem.z_err = z_error;
+  telem.z_trim = z_trim;
   telem.dt = dt;
   telem.m0 = controller.getMotorOutput(0);
   telem.m1 = controller.getMotorOutput(1);
@@ -364,6 +473,9 @@ void loop() {
     Serial.print("Ang-> R:"); Serial.print(current_angle.roll_deg, 1);
     Serial.print(" P:"); Serial.print(current_angle.pitch_deg, 1);
     Serial.print(" Y:"); Serial.print(current_angle.yaw_deg, 1);
+    Serial.print(" | Az:"); Serial.print(telem.az, 3);
+    Serial.print(" AzF:"); Serial.print(telem.az_f, 3);
+    Serial.print(" Zt:"); Serial.print(telem.z_trim, 2);
     Serial.print(" | Motors-> FL:"); Serial.print(telem.m0, 1);
     Serial.print("% FR:"); Serial.print(telem.m1, 1);
     Serial.print("% RL:"); Serial.print(telem.m2, 1);

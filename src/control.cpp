@@ -6,9 +6,9 @@
 #endif
 
 Controller::Controller() {
-    pitchPID = {0.03f, 0.000f, 0.06f, 0.0f, 0.0f, 40.0f, 0.0f};
-    rollPID  = {0.03f, 0.000f, 0.06f, 0.0f, 0.0f, 40.0f, 0.0f};
-    yawPID   = {0.01f, 0.000f, 0.00f, 0.0f, 0.0f, 40.0f, 0.0f};
+    pitchPID = {0.06f, 0.000f, 0.065f, 0.0f, 0.0f, 40.0f, 0.0f};
+    rollPID  = {0.07f, 0.000f, 0.065f, 0.0f, 0.0f, 40.0f, 0.0f};
+    yawPID   = {0.005f, 0.000f, 0.000f, 0.0f, 0.0f, 40.0f, 0.0f};
 
     resetIntegrals();
 }
