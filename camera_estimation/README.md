@@ -41,12 +41,25 @@ From `camera_estimation/`:
 python height_estimator.py --config camera_params_example.yaml
 ```
 
+Camera source selection:
+
+```bash
+# Default webcam (index 0 by default)
+python height_estimator.py --config camera_params_example.yaml --camera-source default
+
+# Apple iPhone Continuity Camera (index 1 by default)
+python height_estimator.py --config camera_params_example.yaml --camera-source iphone
+```
+
 Useful flags:
 
 - `--features 3000` for weak-texture floors
 - `--ratio-test 0.85`
 - `--ransac-thresh 5.0`
 - `--ema-alpha 0.15`
+- `--camera-source default|iphone`
+- `--camera 0` (default source index)
+- `--iphone-camera 1` (iPhone source index)
 
 ## Controls
 

@@ -16,7 +16,24 @@ def parse_args() -> argparse.Namespace:
         description="Simple realtime relative camera-floor height estimator"
     )
     p.add_argument("--config", required=True, help="YAML calibration file")
-    p.add_argument("--camera", type=int, default=0)
+    p.add_argument(
+        "--camera-source",
+        choices=["default", "iphone"],
+        default="default",
+        help="Select default webcam or Apple iPhone Continuity Camera source",
+    )
+    p.add_argument(
+        "--camera",
+        type=int,
+        default=0,
+        help="Device index used when --camera-source=default",
+    )
+    p.add_argument(
+        "--iphone-camera",
+        type=int,
+        default=1,
+        help="Device index used when --camera-source=iphone",
+    )
     p.add_argument("--width", type=int, default=1280)
     p.add_argument("--height", type=int, default=720)
     p.add_argument("--features", type=int, default=2000)
@@ -26,10 +43,17 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def resolve_camera_index(args: argparse.Namespace) -> int:
+    if args.camera_source == "iphone":
+        return args.iphone_camera
+    return args.camera
+
+
 def run() -> None:
     args = parse_args()
+    camera_index = resolve_camera_index(args)
     cfg = RuntimeConfig(
-        camera_index=args.camera,
+        camera_index=camera_index,
         width=args.width,
         height=args.height,
         features=args.features,
@@ -43,7 +67,11 @@ def run() -> None:
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, cfg.width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cfg.height)
     if not cap.isOpened():
-        raise RuntimeError(f"Cannot open camera index {cfg.camera_index}")
+        raise RuntimeError(
+            "Cannot open camera source "
+            f"'{args.camera_source}' (index {cfg.camera_index}). "
+            "Try setting --camera/--iphone-camera to your actual device index."
+        )
 
     orb = create_orb(cfg.features)
     estimator: SimpleRelativeHeightEstimator | None = None
