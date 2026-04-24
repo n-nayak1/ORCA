@@ -33,9 +33,9 @@ public:
   bool valid() const { return valid_; }
 
 private:
-  float kp_ = 0.020f;
-  float ki_ = 0.0005f;
-  float kd_ = 0.010f;
+  float kp_ = 0.0001f;
+  float ki_ = 0.000f;
+  float kd_ = 0.000f;
 
   float lpf_cutoff_hz_ = 6.0f;
   float deadband_mm_ = 20.0f;

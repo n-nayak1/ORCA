@@ -39,17 +39,43 @@ static constexpr float THROTTLE_ARM_PCT = 5.0f;
 static constexpr uint32_t WS_PERIOD_MS = 20;
 
 float alt_set_mm = 0.0f;
-float alt_kp = 0.020f;
-float alt_ki = 0.0005f;
-float alt_kd = 0.010f;
+float alt_kp = 0.002f;
+float alt_ki = 0.0000f;
+float alt_kd = 0.000f;
 float alt_lpf_cutoff_hz = 6.0f;
 float alt_deadband_mm = 20.0f;
 float alt_int_limit = 2000.0f;
 float alt_trim_limit = 20.0f;
 float hover_throttle_pct = 35.0f;
 float alt_set_expo = 2.0f;
+float sensor_ground_offset_mm = 0.0f;
 
 TelemetrySnapshot telem;
+
+static bool autoTareUltrasonic(float& offset_mm) {
+  static constexpr int TARE_SAMPLES = 30;
+  static constexpr int TARE_MIN_VALID = 10;
+
+  float sum_mm = 0.0f;
+  int valid_samples = 0;
+
+  for (int i = 0; i < TARE_SAMPLES; i++) {
+    if (ranger.update(5)) {
+      sum_mm += ranger.data().distance_mm;
+      valid_samples++;
+    }
+    delay(15);
+  }
+
+  if (valid_samples < TARE_MIN_VALID) {
+    return false;
+  }
+
+  offset_mm = sum_mm / (float)valid_samples;
+  if (offset_mm < 0.0f) offset_mm = 0.0f;
+  if (offset_mm > ZControl::ALT_MAX_MM) offset_mm = ZControl::ALT_MAX_MM;
+  return true;
+}
 
 static void syncZControl() {
   z_control.setSetpointMm(alt_set_mm);
@@ -113,6 +139,13 @@ void setup() {
     Serial.println("WARN: RCWL1601 ultrasonic sensor not detected; continuing without distance updates.");
   } else {
     Serial.println("SUCCESS: RCWL1601 Initialized.");
+    if (autoTareUltrasonic(sensor_ground_offset_mm)) {
+      Serial.print("SUCCESS: Ultrasonic auto-tare offset (mm): ");
+      Serial.println(sensor_ground_offset_mm, 1);
+    } else {
+      Serial.println("WARN: Ultrasonic auto-tare failed; using 0 mm offset.");
+      sensor_ground_offset_mm = 0.0f;
+    }
   }
 
   z_control.reset();
@@ -147,7 +180,12 @@ void loop() {
   }
 
   const bool dist_ok = ranger.update(5);
-  const float dist_mm = dist_ok ? ranger.data().distance_mm : telem.alt_meas_mm;
+  float dist_mm = telem.alt_meas_mm;
+  if (dist_ok) {
+    dist_mm = ranger.data().distance_mm - sensor_ground_offset_mm;
+    if (dist_mm < ZControl::ALT_MIN_MM) dist_mm = ZControl::ALT_MIN_MM;
+    if (dist_mm > ZControl::ALT_MAX_MM) dist_mm = ZControl::ALT_MAX_MM;
+  }
 
   const uint32_t current_micros = micros();
   float dt = (current_micros - last_micros) * 1e-6f;
