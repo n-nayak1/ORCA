@@ -123,15 +123,14 @@ const char index_html[] PROGMEM = R"rawliteral(
   <div class="card">
     <h3>Altitude Hold Tuning</h3>
     <div>Alt Set (mm) <input id="zset" type="number" step="10" value="0">
-         Kp <input id="zkp" type="number" step="0.001" value="0.020">
-         Ki <input id="zki" type="number" step="0.0001" value="0.0005">
-         Kd <input id="zkd" type="number" step="0.001" value="0.010"></div><br>
+         Kp <input id="zkp" type="number" step="0.001" value="0.0001">
+         Ki <input id="zki" type="number" step="0.0001" value="0.000">
+         Kd <input id="zkd" type="number" step="0.001" value="0.000"></div><br>
 
-    <div>LPF Hz <input id="zcut" type="number" step="0.1" value="6.0">
-         Deadband (mm) <input id="zdb" type="number" step="1" value="20">
+    <div>Deadband (mm) <input id="zdb" type="number" step="1" value="20">
          Int Lim <input id="zint" type="number" step="10" value="2000">
          Trim Lim (%) <input id="ztrim" type="number" step="0.1" value="20.0"></div><br>
-    <div>Hover Throttle (%) <input id="zhover" type="number" step="0.1" value="35.0">
+    <div>Hover Throttle (%) <input id="zhover" type="number" step="0.1" value="5.0">
          Setpoint Expo <input id="zexpo" type="number" step="0.1" value="2.0"></div><br>
 
     <button class="save" onclick="saveZ()">Update Altitude Params</button>
@@ -151,7 +150,6 @@ const char index_html[] PROGMEM = R"rawliteral(
             `&zkp=${document.getElementById('zkp').value}` +
             `&zki=${document.getElementById('zki').value}` +
             `&zkd=${document.getElementById('zkd').value}` +
-            `&zcut=${document.getElementById('zcut').value}` +
             `&zdb=${document.getElementById('zdb').value}` +
             `&zint=${document.getElementById('zint').value}` +
             `&ztrim=${document.getElementById('ztrim').value}` +
@@ -266,7 +264,6 @@ void WebDashboard::begin(const char* ssid,
     if (request->hasArg("zkp")) alt_params_.kp = request->arg("zkp").toFloat();
     if (request->hasArg("zki")) alt_params_.ki = request->arg("zki").toFloat();
     if (request->hasArg("zkd")) alt_params_.kd = request->arg("zkd").toFloat();
-    if (request->hasArg("zcut")) alt_params_.lpf_cutoff_hz = request->arg("zcut").toFloat();
     if (request->hasArg("zdb")) alt_params_.deadband_mm = request->arg("zdb").toFloat();
     if (request->hasArg("zint")) alt_params_.int_limit = request->arg("zint").toFloat();
     if (request->hasArg("ztrim")) alt_params_.trim_limit = request->arg("ztrim").toFloat();

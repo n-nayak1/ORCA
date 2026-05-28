@@ -35,14 +35,13 @@ Motor motors[4] = {
 uint32_t last_micros = 0;
 uint32_t last_ws_send_ms = 0;
 
-static constexpr float THROTTLE_ARM_PCT = 5.0f;
+static constexpr float THROTTLE_ARM_PCT = 0.5f;
 static constexpr uint32_t WS_PERIOD_MS = 20;
 
 float alt_set_mm = 0.0f;
-float alt_kp = 0.002f;
+float alt_kp = 0.0001f;
 float alt_ki = 0.0000f;
 float alt_kd = 0.000f;
-float alt_lpf_cutoff_hz = 6.0f;
 float alt_deadband_mm = 20.0f;
 float alt_int_limit = 2000.0f;
 float alt_trim_limit = 20.0f;
@@ -55,7 +54,6 @@ static void syncZControl() {
   z_control.setSetpointMm(alt_set_mm);
   z_control.setHoverThrottle(hover_throttle_pct);
   z_control.setParams(alt_kp, alt_ki, alt_kd,
-                      alt_lpf_cutoff_hz,
                       alt_deadband_mm,
                       alt_int_limit,
                       alt_trim_limit);
@@ -72,7 +70,6 @@ static void onAltitudeParams(const AltitudeParamsRequest& req) {
   alt_kp = req.kp;
   alt_ki = req.ki;
   alt_kd = req.kd;
-  alt_lpf_cutoff_hz = req.lpf_cutoff_hz;
   alt_deadband_mm = req.deadband_mm;
   alt_int_limit = req.int_limit;
   alt_trim_limit = req.trim_limit;
@@ -82,7 +79,6 @@ static void onAltitudeParams(const AltitudeParamsRequest& req) {
   if (alt_set_mm < ZControl::ALT_MIN_MM) alt_set_mm = ZControl::ALT_MIN_MM;
   if (alt_set_mm > ZControl::ALT_MAX_MM) alt_set_mm = ZControl::ALT_MAX_MM;
 
-  if (alt_lpf_cutoff_hz < 0.1f) alt_lpf_cutoff_hz = 0.1f;
   if (alt_deadband_mm < 0.0f) alt_deadband_mm = 0.0f;
   if (alt_int_limit < 0.0f) alt_int_limit = 0.0f;
   if (alt_trim_limit < 0.0f) alt_trim_limit = 0.0f;
@@ -96,12 +92,15 @@ static void onAltitudeParams(const AltitudeParamsRequest& req) {
 void setup() {
   Serial.begin(115200);
 
+  Wire.begin(5, 4);
+  Wire.setClock(100000);
+
   dashboard.begin(ssid, password, onPidGains, onAltitudeParams);
 
   RCControl::begin();
   Serial.println("SUCCESS: RC input initialized.");
 
-  if (!imu.begin()) {
+  if (!imu.begin(5, 4, 100000, false)) {
     Serial.println("FATAL ERROR: ICM20948 IMU NOT FOUND! Check wiring (SDA/SCL).");
     while (1) {
       delay(1000);

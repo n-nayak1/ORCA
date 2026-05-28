@@ -13,7 +13,6 @@ public:
   void reset();
 
   void setParams(float kp, float ki, float kd,
-                 float lpf_cutoff_hz,
                  float deadband_mm,
                  float integral_limit,
                  float trim_limit);
@@ -34,15 +33,14 @@ public:
   bool valid() const { return valid_; }
 
 private:
-  float kp_ = 0.0001f;
+  float kp_ = 1.0e-5f;
   float ki_ = 0.000f;
   float kd_ = 0.000f;
 
-  float lpf_cutoff_hz_ = 6.0f;
   float deadband_mm_ = 400.0f;
   float integral_limit_ = 2000.0f;
   float trim_limit_ = 20.0f;
-  float hover_throttle_pct_ = 35.0f;
+  float hover_throttle_pct_ = 5.0f;
 
   float setpoint_mm_ = 0.0f;
   float measured_mm_ = 0.0f;
@@ -51,7 +49,6 @@ private:
   float trim_pct_ = 0.0f;
   float integral_ = 0.0f;
   float previous_error_ = 0.0f;
-  bool has_filter_state_ = false;
   bool valid_ = false;
 
   static float clamp(float val, float min, float max);

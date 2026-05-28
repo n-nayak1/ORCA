@@ -38,14 +38,13 @@ struct PidGainsRequest {
 
 struct AltitudeParamsRequest {
   float set_mm = 0.0f;
-  float kp = 0.020f;
-  float ki = 0.0005f;
-  float kd = 0.010f;
-  float lpf_cutoff_hz = 6.0f;
+  float kp = 0.0001f;
+  float ki = 0.0000f;
+  float kd = 0.000f;
   float deadband_mm = 20.0f;
   float int_limit = 2000.0f;
   float trim_limit = 20.0f;
-  float hover_throttle = 35.0f;
+  float hover_throttle = 5.0f;
   float set_expo = 2.0f;
 };
 
