@@ -1,4 +1,5 @@
 #include "rc_control.hpp"
+#include <cstdint>
 
 namespace RCControl {
 
@@ -19,6 +20,8 @@ static volatile uint32_t riseTimeUs[NUM_CHANNELS] = {
 static volatile uint32_t lastUpdateUs[NUM_CHANNELS] = {
     0, 0, 0, 0, 0, 0
 };
+
+static std::array<volatile uint32_t, NUM_CHANNELS> times ={0};
 
 void IRAM_ATTR channelISR(void* arg) {
     const int ch = static_cast<int>(reinterpret_cast<intptr_t>(arg));

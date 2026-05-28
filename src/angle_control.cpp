@@ -51,7 +51,7 @@ void AngleController::compute(euler_t target, euler_t current, float throttle, f
   const float p_adj = runPid(pitch_pid_, pitch_error, dt);
   const float r_adj = runPid(roll_pid_, roll_error, dt);
   const float y_adj = runPid(yaw_pid_, yaw_error, dt);
-  (void)y_adj;
+  // (void)y_adj;
 
   motor_outputs_[0] = throttle - p_adj - r_adj;
   motor_outputs_[1] = throttle + p_adj - r_adj;

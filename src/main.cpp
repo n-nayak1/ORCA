@@ -6,7 +6,7 @@
 #include "icm20948.hpp"
 #include "motor.hpp"
 #include "rc_control.hpp"
-#include "rcwl1601.hpp"
+#include "vl53l0x.hpp"
 #include "webserver.hpp"
 #include "z_control.hpp"
 
@@ -14,7 +14,7 @@ const char* ssid = "Drone-Config";
 const char* password = "password123";
 
 ICM20948 imu;
-RCWL1601 ranger;
+VL53L0X lidar;
 Filter filter;
 AngleController angle_controller;
 ZControl z_control;
@@ -48,34 +48,8 @@ float alt_int_limit = 2000.0f;
 float alt_trim_limit = 20.0f;
 float hover_throttle_pct = 35.0f;
 float alt_set_expo = 2.0f;
-float sensor_ground_offset_mm = 0.0f;
 
 TelemetrySnapshot telem;
-
-static bool autoTareUltrasonic(float& offset_mm) {
-  static constexpr int TARE_SAMPLES = 30;
-  static constexpr int TARE_MIN_VALID = 10;
-
-  float sum_mm = 0.0f;
-  int valid_samples = 0;
-
-  for (int i = 0; i < TARE_SAMPLES; i++) {
-    if (ranger.update(5)) {
-      sum_mm += ranger.data().distance_mm;
-      valid_samples++;
-    }
-    delay(15);
-  }
-
-  if (valid_samples < TARE_MIN_VALID) {
-    return false;
-  }
-
-  offset_mm = sum_mm / (float)valid_samples;
-  if (offset_mm < 0.0f) offset_mm = 0.0f;
-  if (offset_mm > ZControl::ALT_MAX_MM) offset_mm = ZControl::ALT_MAX_MM;
-  return true;
-}
 
 static void syncZControl() {
   z_control.setSetpointMm(alt_set_mm);
@@ -135,17 +109,10 @@ void setup() {
   }
   Serial.println("SUCCESS: IMU Initialized.");
 
-  if (!ranger.begin(4, 5, 400000, false)) {
-    Serial.println("WARN: RCWL1601 ultrasonic sensor not detected; continuing without distance updates.");
+  if (!lidar.begin(VL53L0X_I2C_ADDR, Adafruit_VL53L0X::VL53L0X_SENSE_LONG_RANGE)) {
+    Serial.println("WARN: VL53L0X LiDAR not detected; continuing without distance updates.");
   } else {
-    Serial.println("SUCCESS: RCWL1601 Initialized.");
-    if (autoTareUltrasonic(sensor_ground_offset_mm)) {
-      Serial.print("SUCCESS: Ultrasonic auto-tare offset (mm): ");
-      Serial.println(sensor_ground_offset_mm, 1);
-    } else {
-      Serial.println("WARN: Ultrasonic auto-tare failed; using 0 mm offset.");
-      sensor_ground_offset_mm = 0.0f;
-    }
+    Serial.println("SUCCESS: VL53L0X Initialized and tared.");
   }
 
   z_control.reset();
@@ -179,10 +146,11 @@ void loop() {
     return;
   }
 
-  const bool dist_ok = ranger.update(5);
+  lidar.update();
+  const bool dist_ok = lidar.data().valid;
   float dist_mm = telem.alt_meas_mm;
   if (dist_ok) {
-    dist_mm = ranger.data().distance_mm - sensor_ground_offset_mm;
+    dist_mm = lidar.data().height_mm;
     if (dist_mm < ZControl::ALT_MIN_MM) dist_mm = ZControl::ALT_MIN_MM;
     if (dist_mm > ZControl::ALT_MAX_MM) dist_mm = ZControl::ALT_MAX_MM;
   }
@@ -224,7 +192,8 @@ void loop() {
     telem.throttle = throttle_stab;
   }
 
-  telem.t_ms = millis();
+
+  telem.t_ms = millis(); 
   telem.roll = current_angle.roll_deg;
   telem.pitch = current_angle.pitch_deg;
   telem.yaw = current_angle.yaw_deg;

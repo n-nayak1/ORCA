@@ -7,7 +7,7 @@ class MPU6050 {
 public:
   explicit MPU6050(uint8_t addr = 0x68);
 
-  bool begin(uint8_t sda_pin = 21, uint8_t scl_pin = 22, uint32_t freq_hz = 100000, bool begin_i2c = true);
+  bool begin(uint8_t sda_pin = 5, uint8_t scl_pin = 4, uint32_t freq_hz = 100000, bool begin_i2c = true);
 
   bool update();                 // updates internal imu6_t
   const imu6_t& data() const { return data_; }

@@ -2,10 +2,11 @@
 
 #include <Arduino.h>
 
+
 class ZControl {
 public:
   static constexpr float ALT_MIN_MM = 0.0f;
-  static constexpr float ALT_MAX_MM = 4500.0f;
+  static constexpr float ALT_MAX_MM = 1800.0f;
 
   ZControl() = default;
 
@@ -38,7 +39,7 @@ private:
   float kd_ = 0.000f;
 
   float lpf_cutoff_hz_ = 6.0f;
-  float deadband_mm_ = 20.0f;
+  float deadband_mm_ = 400.0f;
   float integral_limit_ = 2000.0f;
   float trim_limit_ = 20.0f;
   float hover_throttle_pct_ = 35.0f;

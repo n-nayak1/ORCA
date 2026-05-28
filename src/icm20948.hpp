@@ -14,7 +14,7 @@ public:
 
   // begin_i2c=true will call Wire.begin(sda,scl) + Wire.setClock(freq)
   // If you're sharing the I2C bus and already did Wire.begin, pass begin_i2c=false.
-  bool begin(uint8_t sda_pin = 4, uint8_t scl_pin = 5, uint32_t freq_hz = 400000, bool begin_i2c = true);
+  bool begin(uint8_t sda_pin = 5, uint8_t scl_pin = 4, uint32_t freq_hz = 400000, bool begin_i2c = true);
 
   // Optional configuration helpers
   void set_accel_range(icm20948_accel_range_t range);
